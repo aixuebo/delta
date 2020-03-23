@@ -20,7 +20,9 @@ import java.util.Objects
 
 import org.apache.hadoop.fs.{FileStatus, LocatedFileStatus, Path}
 
-/** A serializable variant of HDFS's FileStatus. */
+/** A serializable variant of HDFS's FileStatus.
+  * 表示一个文件---路径、大小、是否是目录、最后修改时间
+  **/
 case class SerializableFileStatus(
     path: String,
     length: Long,

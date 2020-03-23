@@ -259,6 +259,7 @@ object DeltaErrors
       s"Attempted to unset non-existent property '$propertyKey' in table $deltaTableIdentifier")
   }
 
+  //模棱两可的列匹配
   def ambiguousPartitionColumnException(
       columnName: String, colMatches: Seq[StructField]): Throwable = {
     new AnalysisException(
@@ -441,7 +442,7 @@ object DeltaErrors
   }
 
   def specifySchemaAtReadTimeException: Throwable = {
-    new AnalysisException("Delta does not support specifying the schema at read time.")
+    new AnalysisException("Delta does not support specifying the schema at read time.") //实时流该框架不支持定义schema
   }
 
   def schemaNotProvidedException: Throwable = {

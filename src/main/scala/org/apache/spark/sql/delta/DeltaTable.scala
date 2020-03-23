@@ -152,7 +152,9 @@ object DeltaTableUtils extends PredicateHelper
       new Path(tableIdent.table).isAbsolute
   }
 
-  /** Find the root of a Delta table from the provided path. */
+  /** Find the root of a Delta table from the provided path.
+    * 找到path/_delta_log目录
+    **/
   def findDeltaTableRoot(
       spark: SparkSession,
       path: Path,
@@ -258,20 +260,23 @@ object DeltaTableUtils extends PredicateHelper
    * Check if the given path contains time travel syntax with the `@`. If the path genuinely exists,
    * return `None`. If the path doesn't exist, but is specifying time travel, return the
    * `DeltaTimeTravelSpec` as well as the real path.
+    * 校验该path是否包含了版本信息。
+    * 如果path存在,则返回none,因为path是虚拟的,不应该真的存在
+    * 如果path不存在,则才path中解析版本号,返回真实的pah和版本号
    */
   def extractIfPathContainsTimeTravel(
       session: SparkSession,
-      path: String): (String, Option[DeltaTimeTravelSpec]) = {
+      path: String): (String, Option[DeltaTimeTravelSpec]) = { //返回该path属于哪个版本
     val conf = session.sessionState.conf
-    if (!DeltaTimeTravelSpec.isApplicable(conf, path)) return path -> None
+    if (!DeltaTimeTravelSpec.isApplicable(conf, path)) return path -> None //说明该path没有对应具体的版本,因此返回None
 
     val maybePath = new Path(path)
     val fs = maybePath.getFileSystem(session.sessionState.newHadoopConf())
 
     // If the folder really exists, quit
-    if (fs.exists(maybePath)) return path -> None
+    if (fs.exists(maybePath)) return path -> None //说明该path已经存在,理论上该path不应该存在
 
-    val (tt, realPath) = DeltaTimeTravelSpec.resolvePath(conf, path)
+    val (tt, realPath) = DeltaTimeTravelSpec.resolvePath(conf, path)  //反射出具体的path路径 以及该路径对应的版本信息
     realPath -> Some(tt)
   }
 

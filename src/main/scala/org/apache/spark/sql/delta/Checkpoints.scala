@@ -38,10 +38,10 @@ import org.apache.spark.util.SerializableConfiguration
 /**
  * Records information about a checkpoint.
  *
- * @param version the version of this checkpoint
- * @param size the number of actions in the checkpoint
+ * @param version the version of this checkpoint 版本号
+ * @param size the number of actions in the checkpoint 包含多少个action动作
  * @param parts the number of parts when the checkpoint has multiple parts. None if this is a
- *              singular checkpoint
+ *              singular checkpoint 如果一个checkpoint由多个部分组成的,则该参数表示属于哪个部分,none表示该checkpoint只有一个文件
  */
 case class CheckpointMetaData(
     version: Long,
@@ -51,6 +51,7 @@ case class CheckpointMetaData(
 /**
  * A class to help with comparing checkpoints with each other, where we may have had concurrent
  * writers that checkpoint with different number of parts.
+  * 表示某一个部分checkpoint
  */
 case class CheckpointInstance(
     version: Long,
@@ -58,6 +59,8 @@ case class CheckpointInstance(
   /**
    * Due to lexicographic sorting, a version with more parts will appear after a version with
    * less parts during file listing. We use that logic here as well.
+    * true表示该checkpoint对象比参数的版本小
+    * 或者 版本相同的情况下,numParts比参数的小
    */
   def isEarlierThan(other: CheckpointInstance): Boolean = {
     if (other == CheckpointInstance.MaxValue) return true
@@ -65,6 +68,7 @@ case class CheckpointInstance(
         (version == other.version && numParts.forall(_ < other.numParts.getOrElse(1)))
   }
 
+  //true表示 该checkpoint对象比参数小,反正不会比参数大
   def isNotLaterThan(other: CheckpointInstance): Boolean = {
     if (other == CheckpointInstance.MaxValue) return true
     version <= other.version
@@ -78,6 +82,7 @@ case class CheckpointInstance(
     }
   }
 
+  //先按照版本号排序,再按照part块排序
   override def compare(that: CheckpointInstance): Int = {
     if (version == that.version) {
       numParts.getOrElse(1) - that.numParts.getOrElse(1)
@@ -90,7 +95,7 @@ case class CheckpointInstance(
 
 object CheckpointInstance {
   def apply(path: Path): CheckpointInstance = {
-    CheckpointInstance(checkpointVersion(path), numCheckpointParts(path))
+    CheckpointInstance(checkpointVersion(path), numCheckpointParts(path)) //通过checkpoint文件名,转换成CheckpointInstance对象
   }
 
   def apply(metadata: CheckpointMetaData): CheckpointInstance = {
@@ -133,12 +138,12 @@ trait Checkpoints extends DeltaLogging {
     loadMetadataFromFile(0)
   }
 
-  /** Loads the checkpoint metadata from the _last_checkpoint file. */
+  /** Loads the checkpoint metadata from the _last_checkpoint file.加载最后一个checkpoint文件 */
   private def loadMetadataFromFile(tries: Int): Option[CheckpointMetaData] = {
     try {
       val checkpointMetadataJson = store.read(LAST_CHECKPOINT)
       val checkpointMetadata =
-        JsonUtils.mapper.readValue[CheckpointMetaData](checkpointMetadataJson.head)
+        JsonUtils.mapper.readValue[CheckpointMetaData](checkpointMetadataJson.head) //第一行内容,可以了解该CheckpointMetaData元数据信息
       Some(checkpointMetadata)
     } catch {
       case _: FileNotFoundException =>
@@ -153,12 +158,14 @@ trait Checkpoints extends DeltaLogging {
         // Hit a partial file. This could happen on Azure as overwriting _last_checkpoint file is
         // not atomic. We will try to list all files to find the latest checkpoint and restore
         // CheckpointMetaData from it.
-        val verifiedCheckpoint = findLastCompleteCheckpoint(CheckpointInstance(-1L, None))
+        val verifiedCheckpoint = findLastCompleteCheckpoint(CheckpointInstance(-1L, None)) //找到最后一个checkpoint文件
         verifiedCheckpoint.map(manuallyLoadCheckpoint)
     }
   }
 
-  /** Loads the given checkpoint manually to come up with the CheckpointMetaData */
+  /** Loads the given checkpoint manually to come up with the CheckpointMetaData
+    * 手动的加载某一个元数据checkpoint对象
+    **/
   protected def manuallyLoadCheckpoint(cv: CheckpointInstance): CheckpointMetaData = {
     CheckpointMetaData(cv.version, -1L, cv.numParts)
   }
@@ -167,13 +174,14 @@ trait Checkpoints extends DeltaLogging {
    * Finds the first verified, complete checkpoint before the given version.
    *
    * @param cv The CheckpointVersion to compare against
+    *
    */
   protected def findLastCompleteCheckpoint(cv: CheckpointInstance): Option[CheckpointInstance] = {
     var cur = math.max(cv.version, 0L)
     while (cur >= 0) {
       val checkpoints = store.listFrom(checkpointPrefix(logPath, math.max(0, cur - 1000)))
           .map(_.getPath)
-          .filter(isCheckpointFile)
+          .filter(isCheckpointFile) //保留checkpoint文件
           .map(CheckpointInstance(_))
           .takeWhile(tv => (cur == 0 || tv.version <= cur) && tv.isEarlierThan(cv))
           .toArray
@@ -190,15 +198,17 @@ trait Checkpoints extends DeltaLogging {
   /**
    * Given a list of checkpoint files, pick the latest complete checkpoint instance which is not
    * later than `notLaterThan`.
+    * 给定一组checkpoint文件,找到最后一个文件
    */
   protected def getLatestCompleteCheckpointFromList(
       instances: Array[CheckpointInstance],
       notLaterThan: CheckpointInstance): Option[CheckpointInstance] = {
-    val complete = instances.filter(_.isNotLaterThan(notLaterThan)).groupBy(identity).filter {
+    val complete = instances.filter(_.isNotLaterThan(notLaterThan)) //过滤掉不能比notLaterThan大的
+      .groupBy(identity).filter {
       case (CheckpointInstance(_, None), inst) => inst.length == 1
-      case (CheckpointInstance(_, Some(parts)), inst) => inst.length == parts
+      case (CheckpointInstance(_, Some(parts)), inst) => inst.length == parts //确保该集合是完整的
     }
-    complete.keys.toArray.sorted.lastOption
+    complete.keys.toArray.sorted.lastOption //获取最后一个checkpoint对象
   }
 }
 

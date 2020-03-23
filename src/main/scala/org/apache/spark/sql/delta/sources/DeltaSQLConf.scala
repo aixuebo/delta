@@ -131,6 +131,7 @@ object DeltaSQLConf {
       .checkValue(_ > 0, "maxSnapshotLineageLength must be positive.")
       .createWithDefault(50)
 
+  //允许保留多少个提交版本
   val DELTA_HISTORY_PAR_SEARCH_THRESHOLD =
     buildConf("history.maxKeysPerList")
       .internal()

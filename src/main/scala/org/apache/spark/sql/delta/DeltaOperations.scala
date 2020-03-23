@@ -36,17 +36,20 @@ object DeltaOperations {
    * @param name The name of the operation.
    */
   sealed abstract class Operation(val name: String) {
-    val parameters: Map[String, Any]
+    val parameters: Map[String, Any] //key是字符串,value是对象
 
+    //对value对象转换成json字符串,因此最终的结果是 key是map的key,value是map的value对象转换成json字符串
     lazy val jsonEncodedValues: Map[String, String] = parameters.mapValues(JsonUtils.toJson(_))
 
     val operationMetrics: Seq[String] = Seq()
 
     def transformMetrics(metrics: Map[String, SQLMetric]): Map[String, String] = {
       metrics.filterKeys( s =>
-        operationMetrics.contains(s)
+        operationMetrics.contains(s) //只保留要的统计key
       )
-      metrics.transform((_, v) => v.value.toString)
+
+      //transform(f)的操作是(key,f(key,value))
+      metrics.transform((_, v) => v.value.toString) //获取需要的统计key的key与value
     }
   }
 

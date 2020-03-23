@@ -21,8 +21,8 @@ import org.apache.spark.sql.catalyst.expressions.{Attribute, Expression}
 // This only used by Delta which needs to be compatible with DBR 6 and can't use the new class
 // added in the master branch: `DeleteFromTable`.
 case class DeltaDelete(
-    child: LogicalPlan,
-    condition: Option[Expression])
+    child: LogicalPlan,//删除的表
+    condition: Option[Expression])//删除的条件
   extends UnaryNode {
   override def output: Seq[Attribute] = Seq.empty
 }

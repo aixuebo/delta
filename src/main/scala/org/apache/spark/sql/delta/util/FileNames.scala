@@ -21,23 +21,23 @@ import org.apache.hadoop.fs.Path
 /** Helper for creating file names for specific commits / checkpoints. */
 object FileNames {
 
-  val deltaFilePattern = "\\d+\\.json".r.pattern
-  val checksumFilePattern = "\\d+\\.crc".r.pattern
-  val checkpointFilePattern = "\\d+\\.checkpoint(\\.\\d+\\.\\d+)?\\.parquet".r.pattern
+  val deltaFilePattern = "\\d+\\.json".r.pattern //00001.json
+  val checksumFilePattern = "\\d+\\.crc".r.pattern //00001.crc
+  val checkpointFilePattern = "\\d+\\.checkpoint(\\.\\d+\\.\\d+)?\\.parquet".r.pattern //00001.checkpoint.parquet 或者 00000000000000004915.checkpoint.0000000020.0000000060.parquet
 
-  /** Returns the path for a given delta file. */
+  /** Returns the path for a given delta file.找到指定版本文件 */
   def deltaFile(path: Path, version: Long): Path = new Path(path, f"$version%020d.json")
 
   /** Returns the path for a given sample file */
   def sampleFile(path: Path, version: Long): Path = new Path(path, f"$version%020d")
 
-  /** Returns the path to the checksum file for the given version. */
+  /** Returns the path to the checksum file for the given version. 找到校验文件*/
   def checksumFile(path: Path, version: Long): Path = new Path(path, f"$version%020d.crc")
 
-  /** Returns the version for the given delta path. */
+  /** Returns the version for the given delta path. 提取版本号*/
   def deltaVersion(path: Path): Long = path.getName.stripSuffix(".json").toLong
 
-  /** Returns the version for the given checksum file. */
+  /** Returns the version for the given checksum file. 是否是校验文件*/
   def checksumVersion(path: Path): Long = path.getName.stripSuffix(".crc").toLong
 
   /**
@@ -71,6 +71,7 @@ object FileNames {
       .map(i => new Path(path, f"$version%020d.checkpoint.$i%010d.$numParts%010d.parquet"))
   }
 
+  //计算属于哪部分,找到最后一个部分数字
   def numCheckpointParts(path: Path): Option[Int] = {
     val segments = path.getName.split("\\.")
 
@@ -83,5 +84,6 @@ object FileNames {
 
   def isChecksumFile(path: Path): Boolean = checksumFilePattern.matcher(path.getName).matches()
 
+  //checkpoint的版本号
   def checkpointVersion(path: Path): Long = path.getName.split("\\.")(0).toLong
 }

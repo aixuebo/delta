@@ -55,14 +55,15 @@ import org.apache.spark.util.{Clock, SystemClock, ThreadUtils}
  * Internally, this class implements an optimistic concurrency control
  * algorithm to handle multiple readers or writers. Any single read
  * is guaranteed to see a consistent snapshot of the table.
+  * 表示delta管理的一张表
  */
 class DeltaLog private(
-    val logPath: Path,
-    val dataPath: Path,
+    val logPath: Path,//root/_delta_log目录
+    val dataPath: Path,//root目录
     val clock: Clock)
   extends Checkpoints
   with MetadataCleanup
-  with LogStoreProvider
+  with LogStoreProvider //log的存储,用于如何存储log内容,以及存储的路径
   with SnapshotManagement
   with ReadChecksum {
 
@@ -83,7 +84,7 @@ class DeltaLog private(
   /** Use ReentrantLock to allow us to call `lockInterruptibly` */
   protected val deltaLogLock = new ReentrantLock()
 
-  /** Delta History Manager containing version and commit history. */
+  /** Delta History Manager containing version and commit history. 如何查询历史提交版本信息*/
   lazy val history = new DeltaHistoryManager(
     this, spark.sessionState.conf.getConf(DeltaSQLConf.DELTA_HISTORY_PAR_SEARCH_THRESHOLD))
 
@@ -124,7 +125,7 @@ class DeltaLog private(
    * can remove data such as DELETE/UPDATE/MERGE.
    */
   def assertRemovable(): Unit = {
-    if (DeltaConfigs.IS_APPEND_ONLY.fromMetaData(metadata)) {
+    if (DeltaConfigs.IS_APPEND_ONLY.fromMetaData(metadata)) { //表是否只能追加，不能被删除操作
       throw DeltaErrors.modifyAppendOnlyTableException
     }
   }
@@ -179,15 +180,16 @@ class DeltaLog private(
    *
    * @note This uses thread-local variable to make the active transaction visible. So do not use
    *       multi-threaded code in the provided thunk.
+    * 表示一个事物内操作,参数是给定事物对象,返回结果集
    */
   def withNewTransaction[T](thunk: OptimisticTransaction => T): T = {
     try {
-      update()
-      val txn = new OptimisticTransaction(this)
-      OptimisticTransaction.setActive(txn)
-      thunk(txn)
+      update() //更新当前事物日志的快照
+      val txn = new OptimisticTransaction(this) //初始化乐观锁对象
+      OptimisticTransaction.setActive(txn) //开启事物
+      thunk(txn) //执行写操作
     } finally {
-      OptimisticTransaction.clearActive()
+      OptimisticTransaction.clearActive() //关闭事物
     }
   }
 
@@ -222,10 +224,11 @@ class DeltaLog private(
   /**
    * Get all actions starting from "startVersion" (inclusive). If `startVersion` doesn't exist,
    * return an empty Iterator.
+    * 返回每一个版本对应的动作集合
    */
   def getChanges(startVersion: Long): Iterator[(Long, Seq[Action])] = {
     val deltas = store.listFrom(deltaFile(logPath, startVersion))
-      .filter(f => isDeltaFile(f.getPath))
+      .filter(f => isDeltaFile(f.getPath)) //找到startVersion开始的json文件
     deltas.map { status =>
       val p = status.getPath
       val version = deltaVersion(p)
@@ -237,6 +240,7 @@ class DeltaLog private(
    |  Protocol validation  |
    * --------------------- */
 
+  //根据协议信息，输出协议字符串提示信息
   private def oldProtocolMessage(protocol: Protocol): String =
     s"WARNING: The Delta Lake table at $dataPath has version " +
       s"${protocol.simpleString}, but the latest version is " +
@@ -250,6 +254,7 @@ class DeltaLog private(
 
   /**
    * If the given `protocol` is older than that of the client.
+    * 参数版本过于老
    */
   private def isProtocolOld(protocol: Protocol): Boolean = protocol != null &&
     (Action.readerVersion > protocol.minReaderVersion ||
@@ -303,7 +308,7 @@ class DeltaLog private(
    * ---------------------------------------- */
 
   def isValid(): Boolean = {
-    val expectedExistingFile = deltaFile(logPath, currentSnapshot.version)
+    val expectedExistingFile = deltaFile(logPath, currentSnapshot.version) //是否有指定的版本json文件
     try {
       store.listFrom(expectedExistingFile)
         .take(1)
@@ -358,15 +363,19 @@ class DeltaLog private(
    * in the table. This relation will be continually updated
    * as files are added or removed from the table. However, new [[BaseRelation]]
    * must be requested in order to see changes to the schema.
+    * 根据分区信息,读取数据源
    */
   def createRelation(
       partitionFilters: Seq[Expression] = Nil,
       timeTravel: Option[DeltaTimeTravelSpec] = None): BaseRelation = {
 
+    //版本号
     val versionToUse = timeTravel.map { tt =>
+      //返回版本信息,以及对应的形式(时间戳、版本号)
       val (version, accessType) = DeltaTableUtils.resolveTimeTravelVersion(
         spark.sessionState.conf, this, tt)
-      val source = tt.creationSource.getOrElse("unknown")
+      val source = tt.creationSource.getOrElse("unknown") //数据源
+      //记录日志
       recordDeltaEvent(this, s"delta.timeTravel.$source", data = Map(
         "tableVersion" -> snapshot.version,
         "queriedVersion" -> version,
@@ -377,7 +386,7 @@ class DeltaLog private(
 
     /** Used to link the files present in the table into the query planner. */
     val fileIndex = TahoeLogFileIndex(spark, this, dataPath, partitionFilters, versionToUse)
-    val snapshotToUse = versionToUse.map(getSnapshotAt(_)).getOrElse(snapshot)
+    val snapshotToUse = versionToUse.map(getSnapshotAt(_)).getOrElse(snapshot) //版本对象
 
     new HadoopFsRelation(
       fileIndex,
@@ -405,14 +414,15 @@ object DeltaLog extends DeltaLogging {
   /**
    * We create only a single [[DeltaLog]] for any given path to avoid wasted work
    * in reconstructing the log.
+    * 单例模式,每一个path,path为root/log目录，存储一个DeltaLog对象，被缓存在内存中 ,因为 object对象相当于static静态方法
    */
   private val deltaLogCache = {
     val builder = CacheBuilder.newBuilder()
-      .expireAfterAccess(60, TimeUnit.MINUTES)
-      .removalListener(new RemovalListener[Path, DeltaLog] {
+      .expireAfterAccess(60, TimeUnit.MINUTES) //缓存过期时间
+      .removalListener(new RemovalListener[Path, DeltaLog] { //删除时候触发该事件
         override def onRemoval(removalNotification: RemovalNotification[Path, DeltaLog]) = {
           val log = removalNotification.getValue
-          try log.snapshot.uncache() catch {
+          try log.snapshot.uncache() catch {//调用快照的uncache方法
             case _: java.lang.NullPointerException =>
               // Various layers will throw null pointer if the RDD is already gone.
           }
@@ -420,7 +430,7 @@ object DeltaLog extends DeltaLogging {
       })
     sys.props.get("delta.log.cacheSize")
       .flatMap(v => Try(v.toLong).toOption)
-      .foreach(builder.maximumSize)
+      .foreach(builder.maximumSize) //设置maximumSize属性值
     builder.build[Path, DeltaLog]()
   }
 
@@ -464,10 +474,11 @@ object DeltaLog extends DeltaLogging {
     // - Different `authority` (e.g., different user tokens in the path)
     // - Different mount point.
     val cached = try {
+      //从缓存中获取，如果不存在则创建
       deltaLogCache.get(path, new Callable[DeltaLog] {
         override def call(): DeltaLog = recordDeltaOperation(
-            null, "delta.log.create", Map(TAG_TAHOE_PATH -> path.getParent.toString)) {
-          AnalysisHelper.allowInvokingTransformsInAnalyzer {
+            null, "delta.log.create", Map(TAG_TAHOE_PATH -> path.getParent.toString)) {//操作类型是创建表
+          AnalysisHelper.allowInvokingTransformsInAnalyzer {//执行方法
             new DeltaLog(path, path.getParent, clock)
           }
         }
@@ -482,12 +493,14 @@ object DeltaLog extends DeltaLogging {
     if (cached.snapshot.version == -1 || cached.isValid) {
       cached
     } else {
-      deltaLogCache.invalidate(path)
+      deltaLogCache.invalidate(path) //让该key从缓存中失效
       apply(spark, path)
     }
   }
 
-  /** Invalidate the cached DeltaLog object for the given `dataPath`. */
+  /** Invalidate the cached DeltaLog object for the given `dataPath`.
+    * 让路径失效
+    **/
   def invalidateCache(spark: SparkSession, dataPath: Path): Unit = {
     try {
       val rawPath = new Path(dataPath, "_delta_log")
@@ -511,15 +524,16 @@ object DeltaLog extends DeltaLogging {
    * @param partitionColumnPrefixes The path to the `partitionValues` column, if it's nested
    */
   def filterFileList(
-      partitionSchema: StructType,
+      partitionSchema: StructType,//分区的schema
       files: DataFrame,
-      partitionFilters: Seq[Expression],
+      partitionFilters: Seq[Expression],//分区表达式
       partitionColumnPrefixes: Seq[String] = Nil): DataFrame = {
     val rewrittenFilters = rewritePartitionFilters(
       partitionSchema,
       files.sparkSession.sessionState.conf.resolver,
       partitionFilters,
       partitionColumnPrefixes)
+    //加入分区表达式,如果没有分区内容,则 返回true，表示任何数据都通过
     val columnFilter = new Column(rewrittenFilters.reduceLeftOption(And).getOrElse(Literal(true)))
     files.filter(columnFilter)
   }
@@ -542,13 +556,13 @@ object DeltaLog extends DeltaLogging {
       case a: Attribute =>
         // If we have a special column name, e.g. `a.a`, then an UnresolvedAttribute returns
         // the column name as '`a.a`' instead of 'a.a', therefore we need to strip the backticks.
-        val unquoted = a.name.stripPrefix("`").stripSuffix("`")
+        val unquoted = a.name.stripPrefix("`").stripSuffix("`") //去掉`
         val partitionCol = partitionSchema.find { field => resolver(field.name, unquoted) }
         partitionCol match {
-          case Some(StructField(name, dataType, _, _)) =>
+          case Some(StructField(name, dataType, _, _)) => //说明a.a是分区列
             Cast(
               UnresolvedAttribute(partitionColumnPrefixes ++ Seq("partitionValues", name)),
-              dataType)
+              dataType) //设置哪些列是分区列
           case None =>
             // This should not be able to happen, but the case was present in the original code so
             // we kept it to be safe.

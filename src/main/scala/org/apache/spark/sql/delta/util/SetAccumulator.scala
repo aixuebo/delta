@@ -22,6 +22,7 @@ import org.apache.spark.util.AccumulatorV2
 
 /**
  * Accumulator to collect distinct elements as a set.
+  * 统计set集合中不同的元素集合
  */
 class SetAccumulator[T] extends AccumulatorV2[T, java.util.Set[T]] {
   private val _set = Collections.synchronizedSet(new java.util.HashSet[T]())

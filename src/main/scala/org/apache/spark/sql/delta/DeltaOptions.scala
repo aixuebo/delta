@@ -35,6 +35,7 @@ trait DeltaOptionParser {
   protected def sqlConf: SQLConf
   protected def options: CaseInsensitiveMap[String]
 
+  //将input转换成boolean类型   name描述input属于谁
   def toBoolean(input: String, name: String): Boolean = {
     Try(input.toBoolean).toOption.getOrElse {
       throw DeltaErrors.illegalDeltaOptionException(name, input, "must be 'true' or 'false'")
@@ -157,6 +158,7 @@ object DeltaOptions extends DeltaLogging {
   val OPTIMIZE_WRITE_OPTION = "optimizeWrite"
   val DATA_CHANGE_OPTION = "dataChange"
 
+  //有效的key集合
   val validOptionKeys : Set[String] = Set(
     REPLACE_WHERE_OPTION,
     MERGE_SCHEMA_OPTION,

@@ -387,6 +387,8 @@ private[delta] object PartitionUtils {
    * Given a partition path fragment, e.g. `fieldOne=1/fieldTwo=2`, returns a parsed spec
    * for that fragment as a `Seq[(String, String)]`, e.g.
    * `Seq(("fieldOne", "1"), ("fieldTwo", "2"))`.
+    * 参数是分区信息
+    * 返回分区的key与value集合
    */
   def parsePathFragmentAsSeq(pathFragment: String): Seq[(String, String)] = {
     pathFragment.split("/").map { kv =>

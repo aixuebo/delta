@@ -42,6 +42,7 @@ import org.apache.spark.util.SerializableConfiguration
  * @param maxKeysPerList How many commits to list when performing a parallel search. Exposed for
  *                       tests. Currently set to `1000`, which is the maximum keys returned by S3
  *                       per list call. Azure can return `5000`, therefore we choose 1000.
+  * 每一个path,持有一个该历史日志对象
  */
 class DeltaHistoryManager(
     deltaLog: DeltaLog,
@@ -61,7 +62,7 @@ class DeltaHistoryManager(
    */
   def getHistory(limitOpt: Option[Int]): Seq[CommitInfo] = {
     val listStart = limitOpt.map { limit =>
-      math.max(deltaLog.update().version - limit + 1, 0)
+      math.max(deltaLog.update().version - limit + 1, 0) //从当前版本-limit的位置开始计算开始位置
     }.getOrElse(getEarliestDeltaFile)
     getHistory(listStart, None)
   }
@@ -69,6 +70,7 @@ class DeltaHistoryManager(
   /**
    * Get the commit information of the Delta table from commit `[start, end)`. If `end` is `None`,
    * we return all commits from start to now.
+    * 从某个开始位置开始读取历史数据
    */
   def getHistory(start: Long, end: Option[Long]): Seq[CommitInfo] = {
     val _spark = spark
@@ -76,16 +78,16 @@ class DeltaHistoryManager(
     val conf = getSerializableHadoopConf
     val logPath = deltaLog.logPath.toString
     // We assume that commits are contiguous, therefore we try to load all of them in order
-    val info = spark.range(start, end.getOrElse(deltaLog.update().version) + 1)
+    val info = spark.range(start, end.getOrElse(deltaLog.update().version) + 1) //计算从开始到结束的位置集合---本地计算即可,很快就可以获取结果
       .mapPartitions { versions =>
         val logStore = LogStore(SparkEnv.get.conf, conf.value)
         val basePath = new Path(logPath)
         val fs = basePath.getFileSystem(conf.value)
-        versions.flatMap { commit =>
+        versions.flatMap { commit => //commit表示要获取的版本号
           try {
             val ci = DeltaHistoryManager.getCommitInfo(logStore, basePath, commit)
-            val metadata = fs.getFileStatus(FileNames.deltaFile(basePath, commit))
-            Some(ci.withTimestamp(metadata.getModificationTime))
+            val metadata = fs.getFileStatus(FileNames.deltaFile(basePath, commit)) //json文件元数据
+            Some(ci.withTimestamp(metadata.getModificationTime))//追加时间戳
           } catch {
             case _: FileNotFoundException =>
               // We have a race-condition where files can be deleted while reading. It's fine to
@@ -138,10 +140,12 @@ class DeltaHistoryManager(
     commit
   }
 
-  /** Check whether the given version can be recreated by replaying the DeltaLog. */
+  /** Check whether the given version can be recreated by replaying the DeltaLog.
+    * 确定参数版本号是有效的
+    **/
   def checkVersionExists(version: Long): Unit = {
-    val earliest = getEarliestReproducibleCommit
-    val latest = deltaLog.update().version
+    val earliest = getEarliestReproducibleCommit //已知最早的版本号
+    val latest = deltaLog.update().version //最后一个版本号
     if (version < earliest || version > latest) {
       throw DeltaErrors.versionNotExistException(version, earliest, latest)
     }
@@ -169,11 +173,12 @@ class DeltaHistoryManager(
    * Get the earliest commit available for this table. Note that this version isn't guaranteed to
    * exist when performing an action as a concurrent operation can delete the file during cleanup.
    * This value must be used as a lower bound.
+    * 计算最早的版本文件
    */
   private def getEarliestDeltaFile: Long = {
     val earliestVersionOpt = deltaLog.store.listFrom(FileNames.deltaFile(deltaLog.logPath, 0))
-      .filter(f => FileNames.isDeltaFile(f.getPath))
-      .take(1).toArray.headOption
+      .filter(f => FileNames.isDeltaFile(f.getPath)) //获取json版本文件
+      .take(1).toArray.headOption //获取第一个数据
     if (earliestVersionOpt.isEmpty) {
       throw DeltaErrors.noHistoryFound(deltaLog.logPath)
     }
@@ -188,25 +193,26 @@ class DeltaHistoryManager(
    * We search for the earliest checkpoint we have, or whether we have the 0th delta file, because
    * that way we can reconstruct the entire history of the table. This method assumes that the
    * commits are contiguous.
+    * 计算最早的版本号
    */
   private def getEarliestReproducibleCommit: Long = {
     val files = deltaLog.store.listFrom(FileNames.deltaFile(deltaLog.logPath, 0))
-      .filter(f => FileNames.isDeltaFile(f.getPath) || FileNames.isCheckpointFile(f.getPath))
+      .filter(f => FileNames.isDeltaFile(f.getPath) || FileNames.isCheckpointFile(f.getPath)) //保留 版本json文件或者checkpoint文件
 
     // A map of checkpoint version and number of parts, to number of parts observed
     val checkpointMap = new scala.collection.mutable.HashMap[(Long, Int), Int]()
-    var smallestDeltaVersion = Long.MaxValue
+    var smallestDeltaVersion = Long.MaxValue //记录最小的版本号
 
     while (files.hasNext) {
       val nextFilePath = files.next().getPath
       if (FileNames.isDeltaFile(nextFilePath)) {
         val version = FileNames.deltaVersion(nextFilePath)
-        if (version == 0L) return version
+        if (version == 0L) return version //说明最小的版本号0已经找到了
         smallestDeltaVersion = math.min(version, smallestDeltaVersion)
-      } else if (FileNames.isCheckpointFile(nextFilePath)) {
+      } else if (FileNames.isCheckpointFile(nextFilePath)) { //checkpoint文件
         val checkpointVersion = FileNames.checkpointVersion(nextFilePath)
         val parts = FileNames.numCheckpointParts(nextFilePath)
-        if (parts.isEmpty && smallestDeltaVersion <= checkpointVersion) return checkpointVersion
+        if (parts.isEmpty && smallestDeltaVersion <= checkpointVersion) return checkpointVersion //直接返回第一个出现的point文件,该文件是最低版本
 
         // if we have a multi-part checkpoint, we need to check that all parts exist
         val numParts = parts.getOrElse(1)
@@ -230,10 +236,10 @@ class DeltaHistoryManager(
 object DeltaHistoryManager extends DeltaLogging {
   /** Get the persisted commit info for the given delta file. */
   private def getCommitInfo(logStore: LogStore, basePath: Path, version: Long): CommitInfo = {
-    val info = logStore.read(FileNames.deltaFile(basePath, version))
+    val info = logStore.read(FileNames.deltaFile(basePath, version)) //读取某个版本的json文件
       .iterator
       .map(Action.fromJson)
-      .collectFirst { case c: CommitInfo => c }
+      .collectFirst { case c: CommitInfo => c } //返回第一个出现的文件
     if (info.isEmpty) {
       CommitInfo.empty(Some(version))
     } else {
@@ -246,6 +252,7 @@ object DeltaHistoryManager extends DeltaLogging {
    * specified, will return all commits that exist after `start`. Will guarantee that the commits
    * returned will have both monotonically increasing versions as well as timestamps.
    * Exposed for tests.
+    * 获取start到end之间所有的版本文件
    */
   private[delta] def getCommits(
       logStore: LogStore,
@@ -266,6 +273,7 @@ object DeltaHistoryManager extends DeltaLogging {
   /**
    * Makes sure that the commit timestamps are monotonically increasing with respect to commit
    * versions. Requires the input commits to be sorted by the commit version.
+    * 调整文件的时间戳 按照版本号的时间排序
    */
   private def monotonizeCommitTimestamps[T <: CommitMarker](commits: Array[T]): Array[T] = {
     var i = 0
@@ -318,6 +326,8 @@ object DeltaHistoryManager extends DeltaLogging {
    * @param step The number with which to chunk each linear search across commits. Provide the
    *             max number of keys returned by the underlying FileSystem for in a single RPC for
    *             best results.
+    *  分布式搜索start到end之间的版本文件,同时最后修改时间不能超过time
+    *  返回最后一次出现的版本号文件
    */
   private def parallelSearch0(
       spark: SparkSession,
@@ -333,7 +343,7 @@ object DeltaHistoryManager extends DeltaLogging {
       val basePath = new Path(logPath)
       startVersions.map { startVersion =>
         val commits = getCommits(
-          logStore, basePath, startVersion, Some(math.min(startVersion + step, end)))
+          logStore, basePath, startVersion, Some(math.min(startVersion + step, end))) //分布式找这一段的版本文件
         lastCommitBeforeTimestamp(commits, time).getOrElse(commits.head)
       }
     }.collect()
@@ -343,13 +353,17 @@ object DeltaHistoryManager extends DeltaLogging {
     lastCommitBeforeTimestamp(commitList, time).getOrElse(commitList.head)
   }
 
-  /** Returns the latest commit that happened at or before `time`. */
+  /** Returns the latest commit that happened at or before `time`.
+    * 获取最后一次提交的版本文件对象 ---- 满足时间戳的最后提交文件
+    **/
   private def lastCommitBeforeTimestamp(commits: Seq[Commit], time: Long): Option[Commit] = {
-    val i = commits.lastIndexWhere(_.timestamp <= time)
+    val i = commits.lastIndexWhere(_.timestamp <= time) //只保留比时间戳小的文件
     if (i < 0) None else Some(commits(i))
   }
 
-  /** A helper class to represent the timestamp and version of a commit. */
+  /** A helper class to represent the timestamp and version of a commit.
+    * 表示一个提交版本,包含版本号 以及 时间戳
+    **/
   case class Commit(version: Long, timestamp: Long) extends CommitMarker {
     override def withTimestamp(timestamp: Long): Commit = this.copy(timestamp = timestamp)
 
@@ -376,6 +390,7 @@ object DeltaHistoryManager extends DeltaLogging {
    * |       4 |         8 |                 12 |
    * |       5 |        14 |                 14 |
    * +---------+-----------+--------------------+
+    * 我们可以看到第三列时间戳被调整了,调整为第2列+1
    *
    * As you can see from the example, we require timestamps to be monotonically increasing with
    * respect to the version of the commit, and each commit to have a unique timestamp. If we have
@@ -384,7 +399,7 @@ object DeltaHistoryManager extends DeltaLogging {
    *
    * Given the above commit history, the behavior of this iterator will be as follows:
    *  - For maxVersion = 1 and maxTimestamp = 9, we can delete versions 0 and 1
-   *  - Until we receive maxVersion >= 4 and maxTimestamp >= 12, we can't delete versions 2 and 3.
+   *  - Until we receive maxVersion >= 4 and maxTimestamp >= 12, we can't delete versions 2 and 3. 不能删除2和3,因为4版本的时间戳是通过2版本推导的
    *    This is because version 2 is used to adjust the timestamps of commits up to version 4.
    *  - For maxVersion >= 5 and maxTimestamp >= 14 we can delete everything
    * The semantics of time travel guarantee that for a given timestamp, the user will ALWAYS get the

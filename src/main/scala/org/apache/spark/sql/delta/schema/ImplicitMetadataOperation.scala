@@ -29,21 +29,22 @@ import org.apache.spark.sql.types.StructType
  */
 trait ImplicitMetadataOperation extends DeltaLogging {
 
-  protected val canMergeSchema: Boolean
-  protected val canOverwriteSchema: Boolean
+  protected val canMergeSchema: Boolean //能否合并schema
+  protected val canOverwriteSchema: Boolean //能否重置数据库的schema
 
+  //校验并且格式化分区列大小写,保持跟schema同步
   private def normalizePartitionColumns(
       spark: SparkSession,
       partitionCols: Seq[String],
       schema: StructType): Seq[String] = {
     partitionCols.map { columnName =>
-      val colMatches = schema.filter(s => SchemaUtils.DELTA_COL_RESOLVER(s.name, columnName))
-      if (colMatches.length > 1) {
+      val colMatches = schema.filter(s => SchemaUtils.DELTA_COL_RESOLVER(s.name, columnName)) //说明分区的列,已经存在
+      if (colMatches.length > 1) { //说明分区列 已经 在schema表中存在多个,应该不对
         throw DeltaErrors.ambiguousPartitionColumnException(columnName, colMatches)
-      } else if (colMatches.isEmpty) {
+      } else if (colMatches.isEmpty) { //说明分区列不存在schema中
         throw DeltaErrors.partitionColumnNotFoundException(columnName, schema.toAttributes)
       }
-      colMatches.head.name
+      colMatches.head.name //返回分区列
     }
   }
 
@@ -54,27 +55,27 @@ trait ImplicitMetadataOperation extends DeltaLogging {
       configuration: Map[String, String],
       isOverwriteMode: Boolean,
       rearrangeOnly: Boolean = false): Unit = {
-    val dataSchema = data.schema.asNullable
-    val mergedSchema = if (isOverwriteMode && canOverwriteSchema) {
+    val dataSchema = data.schema.asNullable //数据最新的schema
+    val mergedSchema = if (isOverwriteMode && canOverwriteSchema) { //以最新的schema为准
       dataSchema
     } else {
-      SchemaUtils.mergeSchemas(txn.metadata.schema, dataSchema)
+      SchemaUtils.mergeSchemas(txn.metadata.schema, dataSchema) //合并schema
     }
     val normalizedPartitionCols =
-      normalizePartitionColumns(data.sparkSession, partitionColumns, dataSchema)
+      normalizePartitionColumns(data.sparkSession, partitionColumns, dataSchema) //校验并且格式化分区列大小写,保持跟schema同步
     // Merged schema will contain additional columns at the end
-    def isNewSchema: Boolean = txn.metadata.schema != mergedSchema
+    def isNewSchema: Boolean = txn.metadata.schema != mergedSchema //true说明有新增的列
     // We need to make sure that the partitioning order and naming is consistent
     // if provided. Otherwise we follow existing partitioning
     def isNewPartitioning: Boolean = normalizedPartitionCols.nonEmpty &&
-      txn.metadata.partitionColumns != normalizedPartitionCols
+      txn.metadata.partitionColumns != normalizedPartitionCols //说明增加了分区列
     PartitionUtils.validatePartitionColumn(
       mergedSchema,
       normalizedPartitionCols,
       // Delta is case insensitive regarding internal column naming
       caseSensitive = false)
 
-    if (txn.readVersion == -1) {
+    if (txn.readVersion == -1) {//第一次创建该表
       if (dataSchema.isEmpty) {
         throw DeltaErrors.emptyDataException
       }

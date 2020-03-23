@@ -59,7 +59,7 @@ class DeltaDataSource
       schema: Option[StructType],
       providerName: String,
       parameters: Map[String, String]): (String, StructType) = {
-    if (schema.nonEmpty) {
+    if (schema.nonEmpty) { //实时流该框架不支持定义schema
       throw DeltaErrors.specifySchemaAtReadTimeException
     }
     val path = parameters.getOrElse("path", {
@@ -120,10 +120,12 @@ class DeltaDataSource
     val path = parameters.getOrElse("path", {
       throw DeltaErrors.pathNotSpecifiedException
     })
-    val partitionColumns = parameters.get(DeltaSourceUtils.PARTITIONING_COLUMNS_KEY)
-      .map(DeltaDataSource.decodePartitioningColumns)
+    //是Set集合类型,表示分区字段集合
+    val partitionColumns = parameters.get(DeltaSourceUtils.PARTITIONING_COLUMNS_KEY) //json形式
+      .map(DeltaDataSource.decodePartitioningColumns)//把json的内容转换成set集合,即json内容是数组形式[]
       .getOrElse(Nil)
 
+    //事务日志对象
     val deltaLog = DeltaLog.forTable(sqlContext.sparkSession, path)
     WriteIntoDelta(
       deltaLog = deltaLog,
@@ -139,16 +141,16 @@ class DeltaDataSource
   override def createRelation(
       sqlContext: SQLContext,
       parameters: Map[String, String]): BaseRelation = {
-    val maybePath = parameters.getOrElse("path", {
+    val maybePath = parameters.getOrElse("path", {//读取表路径
       throw DeltaErrors.pathNotSpecifiedException
     })
 
     // Log any invalid options that are being passed in
     DeltaOptions.verifyOptions(CaseInsensitiveMap(parameters))
 
-    val timeTravelByParams = DeltaDataSource.getTimeTravelVersion(parameters)
+    val timeTravelByParams = DeltaDataSource.getTimeTravelVersion(parameters) //确定查询哪个版本数据
     // TODO(burak): Move all this logic into DeltaTableV2 when Spark 3.0 is ready
-    // Handle time travel
+    // Handle time travel  返回值path/_delta_log目录、读取的分区信息、版本信息
     val (path, partitionFilters, timeTravelByPath) =
       DeltaDataSource.parsePathIdentifier(sqlContext.sparkSession, maybePath)
 
@@ -158,6 +160,7 @@ class DeltaDataSource
 
     val deltaLog = DeltaLog.forTable(sqlContext.sparkSession, path)
 
+    //找到分区表达式集合
     val partitionPredicates =
       DeltaDataSource.verifyAndCreatePartitionFilters(maybePath, deltaLog, partitionFilters)
 
@@ -192,6 +195,7 @@ object DeltaDataSource extends DatabricksLogging {
     Serialization.write(columns)
   }
 
+  //把json的内容转换成set集合,即json内容是数组形式[]
   def decodePartitioningColumns(str: String): Seq[String] = {
     Serialization.read[Seq[String]](str)
   }
@@ -241,17 +245,19 @@ object DeltaDataSource extends DatabricksLogging {
    * 1234.
    *
    * @return A tuple of the root path of the Delta table, partition filters, and time travel options
+    *返回值path/_delta_log目录、读取的分区信息、版本信息
    */
   def parsePathIdentifier(
       spark: SparkSession,
       userPath: String): (Path, Seq[(String, String)], Option[DeltaTimeTravelSpec]) = {
     // Handle time travel
-    val (path, timeTravelByPath) = DeltaTableUtils.extractIfPathContainsTimeTravel(spark, userPath)
+    val (path, timeTravelByPath) = DeltaTableUtils.extractIfPathContainsTimeTravel(spark, userPath) //抽取真实路径 和 版本信息
 
     val hadoopPath = new Path(path)
-    val rootPath = DeltaTableUtils.findDeltaTableRoot(spark, hadoopPath).getOrElse {
+    //rootPath = path/_delta_log目录
+    val rootPath = DeltaTableUtils.findDeltaTableRoot(spark, hadoopPath).getOrElse {//找到path/_delta_log目录
       val fs = hadoopPath.getFileSystem(spark.sessionState.newHadoopConf())
-      if (!fs.exists(hadoopPath)) {
+      if (!fs.exists(hadoopPath)) { //说明path/_delta_log目录不存在
         throw DeltaErrors.pathNotExistsException(path)
       }
       hadoopPath
@@ -269,7 +275,7 @@ object DeltaDataSource extends DatabricksLogging {
 
       val fragment = hadoopPath.toString.substring(rootPath.toString.length() + 1)
       try {
-        PartitionUtils.parsePathFragmentAsSeq(fragment)
+        PartitionUtils.parsePathFragmentAsSeq(fragment) //fragment eg:fieldOne=1/fieldTwo=2  返回分区的key与value集合
       } catch {
         case _: ArrayIndexOutOfBoundsException =>
           throw DeltaErrors.partitionPathParseException(fragment)
@@ -278,12 +284,15 @@ object DeltaDataSource extends DatabricksLogging {
       Nil
     }
 
+    //返回值path/_delta_log目录、读取的分区信息、版本信息
     (rootPath, partitionFilters, timeTravelByPath)
   }
 
   /**
    * Verifies that the provided partition filters are valid and returns the corresponding
    * expressions.
+    * 返回计算分区列的表达式集合
+    * 校验分区列是否合法,以及分区列是否有匹配的文件存在
    */
   def verifyAndCreatePartitionFilters(
       userPath: String,
@@ -293,10 +302,10 @@ object DeltaDataSource extends DatabricksLogging {
       val snapshot = deltaLog.update()
       val metadata = snapshot.metadata
 
-      val badColumns = partitionFilters.map(_._1).filterNot(metadata.partitionColumns.contains)
+      val badColumns = partitionFilters.map(_._1).filterNot(metadata.partitionColumns.contains) //找到不是分区的列集合
       if (badColumns.nonEmpty) {
         val fragment = partitionFilters.map(f => s"${f._1}=${f._2}").mkString("/")
-        throw DeltaErrors.partitionPathInvolvesNonPartitionColumnException(badColumns, fragment)
+        throw DeltaErrors.partitionPathInvolvesNonPartitionColumnException(badColumns, fragment) //提示存在不是分区的列信息
       }
 
       val filters = partitionFilters.map { case (key, value) =>
@@ -306,7 +315,7 @@ object DeltaDataSource extends DatabricksLogging {
       val files = DeltaLog.filterFileList(
         metadata.partitionSchema, snapshot.allFiles.toDF(), filters)
       if (files.count() == 0) {
-        throw DeltaErrors.pathNotExistsException(userPath)
+        throw DeltaErrors.pathNotExistsException(userPath) //查看分区的文件集合
       }
       filters
     } else {
@@ -314,22 +323,24 @@ object DeltaDataSource extends DatabricksLogging {
     }
   }
 
-  /** Extracts whether users provided the option to time travel a relation. */
+  /** Extracts whether users provided the option to time travel a relation.
+    * 通过参数抽取出如何回溯数据
+    **/
   def getTimeTravelVersion(parameters: Map[String, String]): Option[DeltaTimeTravelSpec] = {
     val caseInsensitive = CaseInsensitiveMap[String](parameters)
-    val tsOpt = caseInsensitive.get(DeltaDataSource.TIME_TRAVEL_TIMESTAMP_KEY)
-    val versionOpt = caseInsensitive.get(DeltaDataSource.TIME_TRAVEL_VERSION_KEY)
+    val tsOpt = caseInsensitive.get(DeltaDataSource.TIME_TRAVEL_TIMESTAMP_KEY) //时间戳回溯
+    val versionOpt = caseInsensitive.get(DeltaDataSource.TIME_TRAVEL_VERSION_KEY) //版本号回溯
     val sourceOpt = caseInsensitive.get(DeltaDataSource.TIME_TRAVEL_SOURCE_KEY)
 
-    if (tsOpt.isDefined && versionOpt.isDefined) {
-      throw DeltaErrors.provideOneOfInTimeTravel
+    if (tsOpt.isDefined && versionOpt.isDefined) {//不能既支持时间戳回溯版本，又版本号回溯版本
+      throw DeltaErrors.provideOneOfInTimeTravel //抛异常
     } else if (tsOpt.isDefined) {
       Some(DeltaTimeTravelSpec(Some(Literal(tsOpt.get)), None, sourceOpt.orElse(Some("dfReader"))))
     } else if (versionOpt.isDefined) {
-      val version = Try(versionOpt.get.toLong) match {
+      val version = Try(versionOpt.get.toLong) match { //版本号是否是整数
         case Success(v) => v
         case Failure(t) => throw new IllegalArgumentException(
-          s"${DeltaDataSource.TIME_TRAVEL_VERSION_KEY} needs to be a valid bigint value.", t)
+          s"${DeltaDataSource.TIME_TRAVEL_VERSION_KEY} needs to be a valid bigint value.", t) //必须是一个有效的整数
       }
       Some(DeltaTimeTravelSpec(None, Some(version), sourceOpt.orElse(Some("dfReader"))))
     } else {

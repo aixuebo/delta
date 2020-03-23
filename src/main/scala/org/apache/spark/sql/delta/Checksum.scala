@@ -41,6 +41,7 @@ import org.apache.spark.util.Utils
  * @param numMetadata Number of `Metadata` actions in the snapshot
  * @param numProtocol Number of `Protocol` actions in the snapshot
  * @param numTransactions Number of `SetTransaction` actions in the snapshot
+  * 校验文件内容
  */
 case class VersionChecksum(
     tableSizeBytes: Long,
@@ -98,7 +99,7 @@ trait ReadChecksum extends DeltaLogging { self: DeltaLog =>
   private[delta] def store: LogStore
 
   protected def readChecksum(version: Long): Option[VersionChecksum] = {
-    val checksumFile = FileNames.checksumFile(logPath, version)
+    val checksumFile = FileNames.checksumFile(logPath, version) //找到版本json文件的crc版本校验文件
 
     var exception: Option[String] = None
     val content = try Some(store.read(checksumFile)) catch {
@@ -123,7 +124,7 @@ trait ReadChecksum extends DeltaLogging { self: DeltaLog =>
 
       return None
     }
-    val checksumData = content.get
+    val checksumData = content.get //校验内容
     if (checksumData.isEmpty) {
       recordDeltaEvent(
         this,

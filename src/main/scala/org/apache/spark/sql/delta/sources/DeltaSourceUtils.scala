@@ -24,13 +24,13 @@ object DeltaSourceUtils {
 
   // Batch relations don't pass partitioning columns to `CreatableRelationProvider`s, therefore
   // as a hack, we pass in the partitioning columns among the options.
-  val PARTITIONING_COLUMNS_KEY = "__partition_columns"
+  val PARTITIONING_COLUMNS_KEY = "__partition_columns" //分区字段 是json形式  把json的内容转换成set集合,即json内容是数组形式[]
 
   def isDeltaDataSourceName(name: String): Boolean = {
     name.toLowerCase(Locale.ROOT) == NAME || name.toLowerCase(Locale.ROOT) == ALT_NAME
   }
 
-  /** Check whether this table is a Delta table based on information from the Catalog. */
+  /** Check whether this table is a Delta table based on information from the Catalog. 基于Catalog的信息判断该表是否是delta维护的表 **/
   def isDeltaTable(provider: Option[String]): Boolean = {
     provider match {
       case Some(p) => isDeltaDataSourceName(p)

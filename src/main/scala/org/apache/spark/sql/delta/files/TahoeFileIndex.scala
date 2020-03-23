@@ -123,8 +123,10 @@ case class TahoeLogFileIndex(
     versionToUse: Option[Long] = None)
   extends TahoeFileIndex(spark, deltaLog, path) {
 
+  //获取要读取的版本表ID
   override def tableVersion: Long = versionToUse.getOrElse(deltaLog.snapshot.version)
 
+  //找到该版本的快照
   private lazy val historicalSnapshotOpt: Option[Snapshot] =
     versionToUse.map(deltaLog.getSnapshotAt(_))
 

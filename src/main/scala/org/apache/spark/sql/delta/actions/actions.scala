@@ -48,11 +48,13 @@ object Action {
   val writerVersion = 2
   val protocolVersion: Protocol = Protocol(readerVersion, writerVersion)
 
+  //json字符串转换成Action对象
   def fromJson(json: String): Action = {
-    JsonUtils.mapper.readValue[SingleAction](json).unwrap
+    JsonUtils.mapper.readValue[SingleAction](json).unwrap //如何将json字符串转换成SingleAction对象
   }
 
-  lazy val logSchema = ExpressionEncoder[SingleAction].schema
+  //action对象如何转换成字符串
+  lazy val logSchema = ExpressionEncoder[SingleAction].schema //将SingleAction对象转换成schema字符串
 }
 
 /**
@@ -61,8 +63,8 @@ object Action {
  * of the table at a given point in time.
  */
 sealed trait Action {
-  def wrap: SingleAction
-  def json: String = JsonUtils.toJson(wrap)
+  def wrap: SingleAction //如何转换成对应的action对象
+  def json: String = JsonUtils.toJson(wrap) //如何把action对象转换成json字符串
 }
 
 /**
@@ -243,8 +245,8 @@ case class CommitInfo(
     // The commit version should be left unfilled during commit(). When reading a delta file, we can
     // infer the commit version from the file name and fill in this field then.
     @JsonDeserialize(contentAs = classOf[java.lang.Long])
-    version: Option[Long],
-    timestamp: Timestamp,
+    version: Option[Long],//版本号,即json前面的数字
+    timestamp: Timestamp,//文件最后修改时间
     userId: Option[String],
     userName: Option[String],
     operation: String,
@@ -261,6 +263,7 @@ case class CommitInfo(
     operationMetrics: Option[Map[String, String]]) extends Action with CommitMarker {
   override def wrap: SingleAction = SingleAction(commitInfo = this)
 
+  //文件的最后修改时间
   override def withTimestamp(timestamp: Long): CommitInfo = {
     this.copy(timestamp = new Timestamp(timestamp))
   }

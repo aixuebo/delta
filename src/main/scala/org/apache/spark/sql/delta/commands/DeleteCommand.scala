@@ -35,7 +35,7 @@ import org.apache.spark.sql.types.BooleanType
 
 /**
  * Performs a Delete based on the search condition
- *
+ * 基于搜索条件去删除数据
  * Algorithm:
  *   1) Scan all the files and determine which files have
  *      the rows that need to be deleted.

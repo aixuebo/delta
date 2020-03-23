@@ -39,7 +39,8 @@ import org.apache.spark.sql.SparkSession
  *
  * 1. Atomic visibility of files: `FileContext.rename` is used write files which is atomic for HDFS.
  *
- * 2. Consistent file listing: HDFS file listing is consistent.
+ * 2. Consistent file listing: HDFS file listing is consistlistFroment.
+  * 该对象考虑到了HDFS和LOCAL两种模式,所以是默认的实现类
  */
 class HDFSLogStore(sparkConf: SparkConf, defaultHadoopConf: Configuration) extends LogStore {
 
@@ -82,11 +83,12 @@ class HDFSLogStore(sparkConf: SparkConf, defaultHadoopConf: Configuration) exten
   private def writeInternal(path: Path, actions: Iterator[String], overwrite: Boolean): Unit = {
     val fc = getFileContext(path)
 
-    if (!overwrite && fc.util.exists(path)) {
+    if (!overwrite && fc.util.exists(path)) { //overwrite=false时,不允许该path存在
       // This is needed for the tests to throw error with local file system
       throw new FileAlreadyExistsException(path.toString)
     }
 
+    //创建临时文件,写入到临时文件里
     val tempPath = createTempPath(path)
     var streamClosed = false // This flag is to avoid double close
     var renameDone = false // This flag is to save the delete operation in most of cases.
@@ -96,13 +98,13 @@ class HDFSLogStore(sparkConf: SparkConf, defaultHadoopConf: Configuration) exten
     try {
       actions.map(_ + "\n").map(_.getBytes(UTF_8)).foreach(stream.write)
       stream.close()
-      streamClosed = true
+      streamClosed = true //说明临时文件已经写完
       try {
         val renameOpt = if (overwrite) Options.Rename.OVERWRITE else Options.Rename.NONE
-        fc.rename(tempPath, path, renameOpt)
-        renameDone = true
+        fc.rename(tempPath, path, renameOpt) //rename操作
+        renameDone = true //说明rename操作完成
         // TODO: this is a workaround of HADOOP-16255 - remove this when HADOOP-16255 is resolved
-        tryRemoveCrcFile(fc, tempPath)
+        tryRemoveCrcFile(fc, tempPath) //删除校验文件
       } catch {
         case e: org.apache.hadoop.fs.FileAlreadyExistsException =>
           throw new FileAlreadyExistsException(path.toString)
@@ -111,8 +113,8 @@ class HDFSLogStore(sparkConf: SparkConf, defaultHadoopConf: Configuration) exten
       if (!streamClosed) {
         stream.close()
       }
-      if (!renameDone) {
-        fc.delete(tempPath, false)
+      if (!renameDone) { //如果rename完成,则
+        fc.delete(tempPath, false) //删除临时文件
       }
     }
   }
@@ -121,6 +123,7 @@ class HDFSLogStore(sparkConf: SparkConf, defaultHadoopConf: Configuration) exten
     new Path(path.getParent, s".${path.getName}.${UUID.randomUUID}.tmp")
   }
 
+  //删除校验文件
   private def tryRemoveCrcFile(fc: FileContext, path: Path): Unit = {
     try {
       val checksumFile = new Path(path.getParent, s".${path.getName}.crc")

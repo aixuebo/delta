@@ -24,20 +24,19 @@ package com.databricks.spark.util
 class TagDefinition
 
 object TagDefinitions {
-  object TAG_TAHOE_PATH extends TagDefinition
-  object TAG_TAHOE_ID extends TagDefinition
-  object TAG_ASYNC extends TagDefinition
-  object TAG_LOG_STORE_CLASS extends TagDefinition
-  object TAG_OP_TYPE extends TagDefinition
+  object TAG_TAHOE_PATH extends TagDefinition //日志文件的父路径
+  object TAG_TAHOE_ID extends TagDefinition //deltaLog.snapshot.metadata.id
+  object TAG_ASYNC extends TagDefinition //异步
+  object TAG_LOG_STORE_CLASS extends TagDefinition //存储日志的类型
+  object TAG_OP_TYPE extends TagDefinition //类型
 }
 
 case class OpType(typeName: String, description: String)
 
-class MetricDefinition
-
+class MetricDefinition //表示记录是否成功/失败
 object MetricDefinitions {
-  object EVENT_LOGGING_FAILURE extends MetricDefinition
-  object EVENT_TAHOE extends MetricDefinition
+  object EVENT_LOGGING_FAILURE extends MetricDefinition //记录失败
+  object EVENT_TAHOE extends MetricDefinition //记录成功
 }
 
 trait DatabricksLogging {
@@ -59,7 +58,7 @@ trait DatabricksLogging {
   def recordEvent(
       metric: MetricDefinition,
       additionalTags: Map[TagDefinition, String] = Map.empty,
-      blob: String = null,
+      blob: String = null,//配置json字符串
       trimBlob: Boolean = true): Unit = {
     recordUsage(metric, 1, additionalTags, blob, trimBlob)
   }

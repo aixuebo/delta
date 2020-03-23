@@ -41,7 +41,7 @@ import org.apache.spark.util.Utils
  */
 trait LogStore {
 
-  /** Read the given `path` */
+  /** Read the given `path` 返回每一行的内容到Set集合中 */
   final def read(path: String): Seq[String] = read(new Path(path))
 
   /** Read the given `path` */
@@ -52,6 +52,7 @@ trait LogStore {
    * Implementation must throw [[java.nio.file.FileAlreadyExistsException]] exception if the file
    * already exists. Furthermore, implementation must ensure that the entire file is made
    * visible atomically, that is, it should not generate partial files.
+    * 将actions内容写入到path里面
    */
   final def write(path: String, actions: Iterator[String]): Unit = write(new Path(path), actions)
 
@@ -60,18 +61,22 @@ trait LogStore {
    * Implementation must throw [[java.nio.file.FileAlreadyExistsException]] exception if the file
    * already exists and overwrite = false. Furthermore, implementation must ensure that the
    * entire file is made visible atomically, that is, it should not generate partial files.
+    * 将actions内容写入到path里面
+    * overwrite true表示path可以存在,然后覆盖  false表示path不允许存在,是新创建文件
    */
   def write(path: Path, actions: Iterator[String], overwrite: Boolean = false): Unit
 
   /**
    * List the paths in the same directory that are lexicographically greater or equal to
    * (UTF-8 sorting) the given `path`. The result should also be sorted by the file name.
+    * 返回path下的所有文件路径集合
    */
   final def listFrom(path: String): Iterator[FileStatus] = listFrom(new Path(path))
 
   /**
    * List the paths in the same directory that are lexicographically greater or equal to
    * (UTF-8 sorting) the given `path`. The result should also be sorted by the file name.
+    * 找到别给定参数更大的路径集合
    */
   def listFrom(path: Path): Iterator[FileStatus]
 
@@ -109,8 +114,8 @@ object LogStore extends LogStoreProvider
 }
 
 trait LogStoreProvider {
-  val logStoreClassConfKey: String = "spark.delta.logStore.class"
-  val defaultLogStoreClass: String = classOf[HDFSLogStore].getName
+  val logStoreClassConfKey: String = "spark.delta.logStore.class" //默认实现类的配置key
+  val defaultLogStoreClass: String = classOf[HDFSLogStore].getName //默认的类
 
   def createLogStore(spark: SparkSession): LogStore = {
     val sc = spark.sparkContext

@@ -33,11 +33,12 @@ import org.apache.spark.sql.types.{LongType, TimestampType}
  *                  be a subquery.
  * @param version The version of the table to time travel to. Must be >= 0.
  * @param creationSource The API used to perform time travel, e.g. `atSyntax`, `dfReader` or SQL
+  * 版本回溯
  */
 case class DeltaTimeTravelSpec(
-    timestamp: Option[Expression],
-    version: Option[Long],
-    creationSource: Option[String]) {
+    timestamp: Option[Expression],//时间戳回溯
+    version: Option[Long],//版本号回溯
+    creationSource: Option[String]) { //数据源
 
   assert(version.isEmpty ^ timestamp.isEmpty,
     "Either the version or timestamp should be provided for time travel")
@@ -54,7 +55,7 @@ case class DeltaTimeTravelSpec(
 
 object DeltaTimeTravelSpec {
   /** A regex which looks for the pattern ...@v(some numbers) for extracting the version number */
-  private val VERSION_URI_FOR_TIME_TRAVEL = ".*@[vV](\\d+)$".r
+  private val VERSION_URI_FOR_TIME_TRAVEL = ".*@[vV](\\d+)$".r //抽取版本号
 
   /** The timestamp format which we accept after the `@` character. */
   private val TIMESTAMP_FORMAT = "yyyyMMddHHmmssSSS"
@@ -63,9 +64,9 @@ object DeltaTimeTravelSpec {
   private val TIMESTAMP_FORMAT_LENGTH = TIMESTAMP_FORMAT.length
 
   /** A regex which looks for the pattern ...@(yyyyMMddHHmmssSSS) for extracting timestamps. */
-  private val TIMESTAMP_URI_FOR_TIME_TRAVEL = s".*@(\\d{$TIMESTAMP_FORMAT_LENGTH})$$".r
+  private val TIMESTAMP_URI_FOR_TIME_TRAVEL = s".*@(\\d{$TIMESTAMP_FORMAT_LENGTH})$$".r //抽取时间戳
 
-  /** Returns whether the given table identifier may contain time travel syntax. */
+  /** Returns whether the given table identifier may contain time travel syntax. 确定是否表名包含了时间戳或者版本号内容*/
   def isApplicable(conf: SQLConf, identifier: String): Boolean = {
     conf.getConf(DeltaSQLConf.RESOLVE_TIME_TRAVEL_ON_IDENTIFIER) &&
       identifierContainsTimeTravel(identifier)
@@ -73,23 +74,23 @@ object DeltaTimeTravelSpec {
 
   /** Checks if the table identifier contains patterns that resemble time travel syntax. */
   private def identifierContainsTimeTravel(identifier: String): Boolean = identifier match {
-    case TIMESTAMP_URI_FOR_TIME_TRAVEL(ts) => true
-    case VERSION_URI_FOR_TIME_TRAVEL(v) => true
+    case TIMESTAMP_URI_FOR_TIME_TRAVEL(ts) => true //时间戳抽取成功
+    case VERSION_URI_FOR_TIME_TRAVEL(v) => true //版本号抽取成功
     case _ => false
   }
 
-  /** Adds a time travel node based on the special syntax in the table identifier. */
+  /** Adds a time travel node based on the special syntax in the table identifier. 通过表名,转换成属于哪个版本回溯内容*/
   def resolvePath(conf: SQLConf, identifier: String): (DeltaTimeTravelSpec, String) = {
     identifier match {
       case TIMESTAMP_URI_FOR_TIME_TRAVEL(ts) =>
-        val timestamp = parseTimestamp(ts, conf.sessionLocalTimeZone)
+        val timestamp = parseTimestamp(ts, conf.sessionLocalTimeZone) //抽取时间戳
         // Drop the 18 characters in the right, which is the timestamp format and the @ character.
-        val realIdentifier = identifier.dropRight(TIMESTAMP_FORMAT_LENGTH + 1)
+        val realIdentifier = identifier.dropRight(TIMESTAMP_FORMAT_LENGTH + 1) //具体表名
 
         DeltaTimeTravelSpec(Some(timestamp), None, Some("atSyntax.path")) -> realIdentifier
-      case VERSION_URI_FOR_TIME_TRAVEL(v) =>
+      case VERSION_URI_FOR_TIME_TRAVEL(v) => //抽取版本号
         // Drop the version, and `@v` characters from the identifier
-        val realIdentifier = identifier.dropRight(v.length + 2)
+        val realIdentifier = identifier.dropRight(v.length + 2) //具体表名
         DeltaTimeTravelSpec(None, Some(v.toLong), Some("atSyntax.path")) -> realIdentifier
     }
   }

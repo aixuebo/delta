@@ -29,10 +29,10 @@ import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, AttributeRef
  * @param condition: Only rows that match the condition will be updated
  */
 case class DeltaUpdateTable(
-    child: LogicalPlan,
-    updateColumns: Seq[NamedExpression],
-    updateExpressions: Seq[Expression],
-    condition: Option[Expression])
+    child: LogicalPlan,//待更新的表
+    updateColumns: Seq[NamedExpression],//更新的列
+    updateExpressions: Seq[Expression],//更新的列值表达式
+    condition: Option[Expression])//更新条件
   extends UnaryNode {
 
   assert(updateColumns.size == updateExpressions.size)
@@ -97,7 +97,7 @@ object DeltaUpdateTable {
     def extractRecursively(expr: Expression): Seq[String] = expr match {
       case attr: AttributeReference => Seq(attr.name)
 
-      case Alias(c, _) => extractRecursively(c)
+      case Alias(c, _) => extractRecursively(c) //如何是别名,则递归获取该属性name
 
       case GetStructField(c, _, Some(name)) => extractRecursively(c) :+ name
 

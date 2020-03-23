@@ -54,12 +54,13 @@ trait DeltaLogging
    * statistics.
    */
   protected def recordDeltaEvent(
-      deltaLog: DeltaLog,
+      deltaLog: DeltaLog,//某一个path下的日志对象
       opType: String,
       tags: Map[TagDefinition, String] = Map.empty,
-      data: AnyRef = null): Unit = {
+      data: AnyRef = null) //可以转换成json字符串的对象
+     : Unit = {
     try {
-      val json = if (data != null) JsonUtils.toJson(data) else ""
+      val json = if (data != null) JsonUtils.toJson(data) else "" //对象转换成json字符串
       val tableTags = if (deltaLog != null) {
         Map(
           TAG_TAHOE_PATH -> Try(deltaLog.dataPath.toString).getOrElse(null),
@@ -68,13 +69,13 @@ trait DeltaLogging
         Map.empty
       }
       recordEvent(
-        EVENT_TAHOE,
-        Map(TAG_OP_TYPE -> opType) ++ tableTags ++ tags,
+        EVENT_TAHOE,//成功状态位
+        Map(TAG_OP_TYPE -> opType) ++ tableTags ++ tags, //追加类型
         blob = json)
     } catch {
       case NonFatal(e) =>
         recordEvent(
-          EVENT_LOGGING_FAILURE,
+          EVENT_LOGGING_FAILURE, //失败状态位
           blob = JsonUtils.toJson(
             Map("exception" -> e.getMessage,
               "opType" -> opType,
@@ -85,12 +86,13 @@ trait DeltaLogging
 
   /**
    * Used to report the duration as well as the success or failure of an operation.
+    * 记录操作日志，并且执行方法
    */
   protected def recordDeltaOperation[A](
       deltaLog: DeltaLog,
       opType: String,
       tags: Map[TagDefinition, String] = Map.empty)(
-      thunk: => A): A = {
+      thunk: => A): A = { //执行thunk方法
     val tableTags = if (deltaLog != null) {
       Map(
         TAG_TAHOE_PATH -> Try(deltaLog.dataPath.toString).getOrElse(null),

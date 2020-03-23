@@ -343,6 +343,7 @@ object DeltaConfigs extends DeltaLogging {
 
   /**
    * Whether this Delta table is append-only. Files can't be deleted, or values can't be updated.
+    * 表是否只能追加，不能被删除操作
    */
   val IS_APPEND_ONLY = buildConfig[Boolean](
     "appendOnly",

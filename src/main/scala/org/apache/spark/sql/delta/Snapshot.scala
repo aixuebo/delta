@@ -160,10 +160,10 @@ class Snapshot(
     state.where("remove IS NOT NULL").select($"remove".as[RemoveFile])
   }
 
-  /** Returns the schema of the table. */
+  /** Returns the schema of the table. 表的元数据*/
   def schema: StructType = metadata.schema
 
-  /** Returns the data schema of the table, the schema of the columns written out to file. */
+  /** Returns the data schema of the table, the schema of the columns written out to file.表中列的元数据 */
   def dataSchema: StructType = metadata.dataSchema
 
   /** Number of columns to collect stats on for data skipping */
@@ -217,6 +217,7 @@ object Snapshot extends DeltaLogging {
   /**
    * Make sure that the delta file we're reading belongs to this table. Cached snapshots from
    * the previous states will contain empty strings as the file name.
+    * 确保UDF中数据文件属于 logBasePath 这个表
    */
   private def assertLogBelongsToTable(logBasePath: URI): UserDefinedFunction = {
     udf((filePath: String) => {

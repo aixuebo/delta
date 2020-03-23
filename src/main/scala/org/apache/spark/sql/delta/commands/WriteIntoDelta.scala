@@ -26,16 +26,18 @@ import org.apache.spark.sql.execution.command.RunnableCommand
 
 /**
  * Used to write a [[DataFrame]] into a delta table.
- *
+ * 将DataFrame 输出到一个表里
+  *
  * New Table Semantics
  *  - The schema of the [[DataFrame]] is used to initialize the table.
  *  - The partition columns will be used to partition the table.
- *
- * Existing Table Semantics
+ * 使用DataFrame的schema 以及 分区字段创建表
+  *
+ * Existing Table Semantics 存在的语法
  *  - The save mode will control how existing data is handled (i.e. overwrite, append, etc)
  *  - The schema will of the DataFrame will be checked and if there are new columns present
  *    they will be added to the tables schema. Conflicting columns (i.e. a INT, and a STRING)
- *    will result in an exception
+ *    will result in an exception 如果字段类型有冲突时,会抛异常
  *  - The partition columns, if present are validated against the existing metadata. If not
  *    present, then the partitioning of the table is respected.
  *
@@ -44,9 +46,9 @@ import org.apache.spark.sql.execution.command.RunnableCommand
  */
 case class WriteIntoDelta(
     deltaLog: DeltaLog,
-    mode: SaveMode,
+    mode: SaveMode,//覆盖 还是 追加
     options: DeltaOptions,
-    partitionColumns: Seq[String],
+    partitionColumns: Seq[String],//分区字段
     configuration: Map[String, String],
     data: DataFrame)
   extends RunnableCommand
@@ -55,7 +57,7 @@ case class WriteIntoDelta(
 
   override protected val canMergeSchema: Boolean = options.canMergeSchema
 
-  private def isOverwriteOperation: Boolean = mode == SaveMode.Overwrite
+  private def isOverwriteOperation: Boolean = mode == SaveMode.Overwrite //是否是覆盖
 
   override protected val canOverwriteSchema: Boolean =
     options.canOverwriteSchema && isOverwriteOperation && options.replaceWhere.isEmpty
@@ -82,7 +84,7 @@ case class WriteIntoDelta(
       }
     }
     val rearrangeOnly = options.rearrangeOnly
-    updateMetadata(txn, data, partitionColumns, configuration, isOverwriteOperation, rearrangeOnly)
+    updateMetadata(txn, data, partitionColumns, configuration, isOverwriteOperation, rearrangeOnly) //更新元数据
 
     // Validate partition predicates
     val replaceWhere = options.replaceWhere

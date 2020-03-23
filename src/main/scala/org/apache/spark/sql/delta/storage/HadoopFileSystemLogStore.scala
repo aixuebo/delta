@@ -43,6 +43,7 @@ abstract class HadoopFileSystemLogStore(
     SparkSession.getActiveSession.map(_.sessionState.newHadoopConf()).getOrElse(hadoopConf)
   }
 
+  //路径下每一行内容是一个元素
   override def read(path: Path): Seq[String] = {
     val fs = path.getFileSystem(getHadoopConfiguration)
     val stream = fs.open(path)
@@ -54,6 +55,7 @@ abstract class HadoopFileSystemLogStore(
     }
   }
 
+  //获取目录下所有子子孙孙文件
   override def listFrom(path: Path): Iterator[FileStatus] = {
     val fs = path.getFileSystem(getHadoopConfiguration)
     if (!fs.exists(path.getParent)) {
@@ -83,14 +85,16 @@ abstract class HadoopFileSystemLogStore(
     if (overwrite) {
       val stream = fs.create(path, true)
       try {
-        actions.map(_ + "\n").map(_.getBytes(UTF_8)).foreach(stream.write)
+        actions.map(_ + "\n").map(_.getBytes(UTF_8)).foreach(stream.write) //对action内容,转换成字节数组,输出到文件流中
       } finally {
         stream.close()
       }
     } else {
-      if (fs.exists(path)) {
+      if (fs.exists(path)) { //不允许该路径存在
         throw new FileAlreadyExistsException(path.toString)
       }
+
+      //先写入到临时文件
       val tempPath = createTempPath(path)
       var streamClosed = false // This flag is to avoid double close
       var renameDone = false // This flag is to save the delete operation in most of cases.
@@ -98,13 +102,13 @@ abstract class HadoopFileSystemLogStore(
       try {
         actions.map(_ + "\n").map(_.getBytes(UTF_8)).foreach(stream.write)
         stream.close()
-        streamClosed = true
+        streamClosed = true //true表示临时文件写入完成
         try {
           if (fs.rename(tempPath, path)) {
-            renameDone = true
+            renameDone = true//表示文件rename完成
           } else {
             if (fs.exists(path)) {
-              throw new FileAlreadyExistsException(path.toString)
+              throw new FileAlreadyExistsException(path.toString) //应该不会走到这里来,因为开始的时候已经做了校验
             } else {
               throw new IllegalStateException(s"Cannot rename $tempPath to $path")
             }
@@ -118,12 +122,13 @@ abstract class HadoopFileSystemLogStore(
           stream.close()
         }
         if (!renameDone) {
-          fs.delete(tempPath, false)
+          fs.delete(tempPath, false) //删除临时文件
         }
       }
     }
   }
 
+  //创建临时文件
   protected def createTempPath(path: Path): Path = {
     new Path(path.getParent, s".${path.getName}.${UUID.randomUUID}.tmp")
   }
